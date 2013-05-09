@@ -1,15 +1,14 @@
-﻿using System;
-using System.CodeDom;
+﻿using System.CodeDom;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using TechTalk.SpecFlow.Generator.UnitTestProvider;
-using TechTalk.SpecFlow.Infrastructure;
 using TechTalk.SpecFlow.Utils;
 
 namespace Baseclass.Contrib.SpecFlow.Selenium.NUnit
 {
+    using System.Configuration;
+    using Baseclass.Contrib.SpecFlow.Selenium.NUnit.Configuration;
+
     public class SeleniumNUnitTestGeneratorProvider : IUnitTestGeneratorProvider
     {
         private const string TESTFIXTURE_ATTR = "NUnit.Framework.TestFixtureAttribute";
@@ -30,6 +29,10 @@ namespace Baseclass.Contrib.SpecFlow.Selenium.NUnit
 
         private bool scenarioSetupMethodsAdded = false;
 
+        private bool sauce = false;
+
+        private SauceLabSettingsSection sauceLabSettings;
+
         public SeleniumNUnitTestGeneratorProvider(CodeDomHelper codeDomHelper)
         {
             this.codeDomHelper = codeDomHelper;
@@ -38,6 +41,63 @@ namespace Baseclass.Contrib.SpecFlow.Selenium.NUnit
         public void SetTestMethodCategories(TechTalk.SpecFlow.Generator.TestClassGenerationContext generationContext, System.CodeDom.CodeMemberMethod testMethod, IEnumerable<string> scenarioCategories)
         {
             this.codeDomHelper.AddAttributeForEachValue(testMethod, CATEGORY_ATTR, scenarioCategories.Where(cat => !cat.StartsWith("Browser:")));
+
+            var sauceLabConfigTag = scenarioCategories.SingleOrDefault(x => x == "SauceLabConfig");
+
+            if (sauceLabConfigTag != null)
+            {
+                this.sauceLabSettings = (SauceLabSettingsSection)ConfigurationManager.GetSection("sauceLabSettings");
+                this.sauce = true;
+            }
+
+            if (this.sauce)
+            {
+                var settings = this.sauceLabSettings;
+
+                foreach (var config in settings.ConfigurationElementCollection)
+                {
+                    var sauceLabConfig = (SauceLabTestConfigurationElement) config;
+
+                    testMethod.UserData.Add("Browser:" + sauceLabConfig.Browser, sauceLabConfig.Browser);
+
+                    var testName = string.Format("{0} on {1} version {2} on {3}", testMethod.Name,
+                                                 sauceLabConfig.Browser, sauceLabConfig.Version, sauceLabConfig.Platform);
+
+                    var withBrowserArgs = new[]
+                            {
+                                new CodeAttributeArgument(new CodePrimitiveExpression(sauceLabConfig.Browser)),
+                                new CodeAttributeArgument(new CodePrimitiveExpression(sauceLabConfig.Version)),
+                                new CodeAttributeArgument(new CodePrimitiveExpression(sauceLabConfig.Platform)),
+                                new CodeAttributeArgument(new CodePrimitiveExpression(settings.Credentials.Url)),
+                                new CodeAttributeArgument(new CodePrimitiveExpression(testName))
+                            }
+                            .Concat(new[] {
+                                new CodeAttributeArgument("Category", new CodePrimitiveExpression(sauceLabConfig.Browser)),
+                                new CodeAttributeArgument("TestName", new CodePrimitiveExpression(testName))
+                            })
+                            .ToArray();
+
+                    this.codeDomHelper.AddAttribute(testMethod, ROW_ATTR, withBrowserArgs);
+                }
+
+                if (!scenarioSetupMethodsAdded)
+                {
+                    generationContext.ScenarioInitializeMethod.Statements.Add(new CodeSnippetStatement("            if(this.driver != null)"));
+                    generationContext.ScenarioInitializeMethod.Statements.Add(new CodeSnippetStatement("                ScenarioContext.Current.Add(\"Driver\", this.driver);"));
+                    generationContext.ScenarioInitializeMethod.Statements.Add(new CodeSnippetStatement("            if(this.container != null)"));
+                    generationContext.ScenarioInitializeMethod.Statements.Add(new CodeSnippetStatement("                ScenarioContext.Current.Add(\"Container\", this.container);"));
+                    scenarioSetupMethodsAdded = true;
+                }
+
+                testMethod.Statements.Insert(0, new CodeSnippetStatement("            InitializeSeleniumSauce(browser, version, platform, name, url);"));
+                testMethod.Parameters.Insert(0, new System.CodeDom.CodeParameterDeclarationExpression("System.string", "browser"));
+                testMethod.Parameters.Insert(1, new System.CodeDom.CodeParameterDeclarationExpression("System.string", "version"));
+                testMethod.Parameters.Insert(2, new System.CodeDom.CodeParameterDeclarationExpression("System.string", "platform"));
+                testMethod.Parameters.Insert(3, new System.CodeDom.CodeParameterDeclarationExpression("System.string", "url"));
+                testMethod.Parameters.Insert(4, new System.CodeDom.CodeParameterDeclarationExpression("System.string", "testName"));
+
+                return;
+            }
             
             bool hasBrowser = false;
 
@@ -133,6 +193,7 @@ namespace Baseclass.Contrib.SpecFlow.Selenium.NUnit
             generationContext.TestClass.Members.Add(new CodeMemberField("IContainer", "container"));
 
             CreateInitializeSeleniumMethod(generationContext);
+            CreateInitializeSeleniumOverloadMethod(generationContext);
 
             CleanUpSeleniumContext(generationContext);
         }
@@ -143,6 +204,20 @@ namespace Baseclass.Contrib.SpecFlow.Selenium.NUnit
             initializeSelenium.Name = "InitializeSelenium";
             initializeSelenium.Parameters.Add(new CodeParameterDeclarationExpression("System.String", "browser"));
             initializeSelenium.Statements.Add(new CodeSnippetStatement("            this.driver = this.container.ResolveNamed<OpenQA.Selenium.IWebDriver>(browser);"));
+
+            generationContext.TestClass.Members.Add(initializeSelenium);
+        }
+
+        private static void CreateInitializeSeleniumOverloadMethod(TechTalk.SpecFlow.Generator.TestClassGenerationContext generationContext)
+        {
+            var initializeSelenium = new CodeMemberMethod();
+            initializeSelenium.Name = "InitializeSeleniumSauce";
+            initializeSelenium.Parameters.Add(new CodeParameterDeclarationExpression("System.String", "browser"));
+            initializeSelenium.Parameters.Add(new CodeParameterDeclarationExpression("System.String", "version"));
+            initializeSelenium.Parameters.Add(new CodeParameterDeclarationExpression("System.String", "platform"));
+            initializeSelenium.Parameters.Add(new CodeParameterDeclarationExpression("System.String", "testName"));
+            initializeSelenium.Parameters.Add(new CodeParameterDeclarationExpression("System.String", "url"));
+            initializeSelenium.Statements.Add(new CodeSnippetStatement("            this.driver = new Baseclass.Contrib.SpecFlow.Selenium.NUnit.RemoteWebDriver(url, browser, version, platform, testName, true);"));
 
             generationContext.TestClass.Members.Add(initializeSelenium);
         }
@@ -158,6 +233,14 @@ namespace Baseclass.Contrib.SpecFlow.Selenium.NUnit
         public void SetTestClassCategories(TechTalk.SpecFlow.Generator.TestClassGenerationContext generationContext, IEnumerable<string> featureCategories)
         {
             this.codeDomHelper.AddAttributeForEachValue(generationContext.TestClass, CATEGORY_ATTR, featureCategories);
+            
+            var sauceLabConfigTag = featureCategories.SingleOrDefault(x => x == "SauceLabConfig");
+
+            if (sauceLabConfigTag != null)
+            {
+                this.sauceLabSettings = (SauceLabSettingsSection) ConfigurationManager.GetSection("sauceLabSettings");
+                this.sauce = true;
+            }
         }
 
         public void SetTestClassCleanupMethod(TechTalk.SpecFlow.Generator.TestClassGenerationContext generationContext)

@@ -62,6 +62,10 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Configuration\SauceLabCredentialsElement.cs" />
+    <Compile Include="Configuration\SauceLabSettingsSection.cs" />
+    <Compile Include="Configuration\SauceLabTestConfigurationElement.cs" />
+    <Compile Include="Configuration\SauceLabTestConfigurationElementCollection.cs" />
     <Compile Include="GeneratorPlugin.cs" />
     <Compile Include="RemoteWebDriver.cs" />
     <Compile Include="RuntimePlugin.cs" />

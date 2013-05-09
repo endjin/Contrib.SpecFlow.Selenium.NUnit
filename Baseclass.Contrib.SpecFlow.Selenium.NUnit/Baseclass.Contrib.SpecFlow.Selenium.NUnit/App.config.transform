@@ -2,10 +2,30 @@
 <configuration>
   <configSections>
     <section name="autofac" type="Autofac.Configuration.SectionHandler, Autofac.Configuration" />
+    <section name="sauceLabSettings" type="Baseclass.Contrib.SpecFlow.Selenium.NUnit.Configuration.SauceLabSettingsSection, Baseclass.Contrib.SpecFlow.Selenium.NUnit" />
   </configSections>
   <appSettings>
     <add key="seleniumBaseUrl" value="http://localhost:58909"/>
+    <add key="sauceLabsUserName" value="SAUCELABSUSERNAMESTRING"/>
+    <add key="sauceLabsAccessKey" value="SAUCELABSACCESSKEYSTRING"/>
   </appSettings>
+  
+  <sauceLabSettings>
+    <sauceLabConfigs>
+      <sauceLabConfig 
+        configName="" 
+        browser="" 
+        version="" 
+        platform="">
+      </sauceLabConfig>
+    </sauceLabConfigs>
+    <sauceLabCredentials>
+      <userName value=""/>
+      <accessKey value=""/>
+      <url value=""/>
+    </sauceLabCredentials>
+  </sauceLabSettings>
+  
   <specFlow>
     <unitTestProvider name="SeleniumNUnit" />
     <plugins>
